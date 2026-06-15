@@ -1,0 +1,12 @@
+{
+  "name": "github-stats-generator-action",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "build:action": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,0 +1,43 @@
+name: GitHub Stats
+description: Download a released github-stats-generator binary and generate overview.svg and languages.svg in the caller repository.
+
+inputs:
+  access_token:
+    description: GitHub personal access token
+    required: true
+  output_dir:
+    description: Directory where the generated SVGs should be written
+    required: false
+    default: "."
+  version:
+    description: Release tag to download, or latest
+    required: false
+    default: "latest"
+  release_repository:
+    description: Repository that hosts the release binaries
+    required: false
+  exclude_repos:
+    description: Comma-separated repository glob patterns to exclude
+    required: false
+  exclude_langs:
+    description: Comma-separated language glob patterns to exclude
+    required: false
+  exclude_private:
+    description: Whether to exclude private repositories
+    required: false
+    default: "false"
+  include_contributed_repositories:
+    description: Whether to include repositories you only contributed to
+    required: false
+    default: "false"
+  exclude_forked_repos:
+    description: Legacy compatibility toggle for contributed repository inclusion
+    required: false
+  max_retries:
+    description: Retry count before contributor stats fall back to git log
+    required: false
+    default: "5"
+
+runs:
+  using: node20
+  main: dist/action.js

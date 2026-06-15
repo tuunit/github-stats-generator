@@ -1,0 +1,37 @@
+version: 2
+
+project_name: github-stats-generator
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: github-stats-generator
+    main: ./cmd/github-stats-generator
+    binary: github-stats-generator
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: github-stats-generator
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
