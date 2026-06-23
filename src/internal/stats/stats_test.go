@@ -83,3 +83,26 @@ func TestAggregateSupportsRepoAndPrivateExclusions(t *testing.T) {
 		t.Fatalf("unexpected totals after exclusions: %+v", summary)
 	}
 }
+
+func TestSanitizeRepositoryNameRedactsPrivateRepositories(t *testing.T) {
+	if got := sanitizeRepositoryName("org/secret", true); got != "<private>" {
+		t.Fatalf("expected private repository name to be redacted, got %q", got)
+	}
+}
+
+func TestSanitizeGitCommandOutputRedactsPrivateRepositoryAndToken(t *testing.T) {
+	repository := Repository{
+		Name:          "org/secret",
+		SanitizedName: sanitizeRepositoryName("org/secret", true),
+		Private:       true,
+	}
+
+	got := sanitizeGitCommandOutput(
+		"fatal: could not read from https://x-access-token:top-secret@github.com/org/secret.git",
+		repository,
+		"top-secret",
+	)
+	if got != "fatal: could not read from https://x-access-token:<redacted-token>@github.com/<private>.git" {
+		t.Fatalf("unexpected sanitized output: %q", got)
+	}
+}

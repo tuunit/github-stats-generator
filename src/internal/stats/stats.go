@@ -31,6 +31,7 @@ type Language struct {
 
 type Repository struct {
 	Name             string
+	SanitizedName    string
 	OwnerLogin       string
 	ViewerPermission string
 	Private          bool
@@ -191,7 +192,7 @@ func (s *Service) Collect(ctx context.Context) (*CollectedStats, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("Email roll call complete: %d address(es) available for line-count attribution.", len(emails))
+	log.Println("Email roll call complete: Found all address(es) available for line-count attribution.")
 
 	log.Printf("Counting all-time contributions across %d year bucket(s).", len(viewer.Years))
 	totalContributions, err := s.fetchTotalContributions(ctx, viewer.Years)
@@ -248,7 +249,7 @@ func (s *Service) Collect(ctx context.Context) (*CollectedStats, error) {
 			"[%d/%d] Inspecting %s (%s): %d star(s), %d fork(s), %d language slice(s).",
 			index,
 			len(repositories),
-			repository.Name,
+			repository.SanitizedName,
 			repository.Source,
 			repository.Stars,
 			repository.Forks,
@@ -261,7 +262,7 @@ func (s *Service) Collect(ctx context.Context) (*CollectedStats, error) {
 			"[%d/%d] Finished %s: %d views, %d lines changed.",
 			index,
 			len(repositories),
-			repository.Name,
+			repository.SanitizedName,
 			repository.Views,
 			repository.LinesChanged,
 		)
@@ -631,6 +632,7 @@ func (s *Service) fetchRepositoryPages(ctx context.Context, query, connectionKey
 func convertRepository(node graphRepositoryNode, viewerLogin string) Repository {
 	repository := Repository{
 		Name:             node.NameWithOwner,
+		SanitizedName:    sanitizeRepositoryName(node.NameWithOwner, node.IsPrivate),
 		OwnerLogin:       node.Owner.Login,
 		ViewerPermission: node.ViewerPermission,
 		Private:          node.IsPrivate,
@@ -671,13 +673,13 @@ func collaboratorPermission(permission string) bool {
 }
 
 func (s *Service) enrichRepository(ctx context.Context, login string, emails []string, repository *Repository) error {
-	linesChanged, err := s.fetchLinesChanged(ctx, login, emails, repository.Name)
+	linesChanged, err := s.fetchLinesChanged(ctx, login, emails, repository)
 	if err != nil {
 		return err
 	}
 	repository.LinesChanged = linesChanged
 
-	views, err := s.fetchViews(ctx, repository.Name)
+	views, err := s.fetchViews(ctx, repository)
 	if err != nil {
 		return err
 	}
@@ -685,24 +687,24 @@ func (s *Service) enrichRepository(ctx context.Context, login string, emails []s
 	return nil
 }
 
-func (s *Service) fetchViews(ctx context.Context, repository string) (int, error) {
+func (s *Service) fetchViews(ctx context.Context, repository *Repository) (int, error) {
 	var response struct {
 		Count int `json:"count"`
 	}
-	status, _, err := s.client.REST(ctx, "/repos/"+repository+"/traffic/views", &response)
+	status, _, err := s.client.REST(ctx, "/repos/"+repository.Name+"/traffic/views", &response)
 	if err != nil {
 		return 0, err
 	}
 	if status != 200 {
-		log.Printf("Views for %s came back with HTTP %d, so this round scores 0.", repository, status)
+		log.Printf("Views for %s came back with HTTP %d, so this round scores 0.", repository.SanitizedName, status)
 		return 0, nil
 	}
 	return response.Count, nil
 }
 
-func (s *Service) fetchLinesChanged(ctx context.Context, login string, emails []string, repository string) (int, error) {
+func (s *Service) fetchLinesChanged(ctx context.Context, login string, emails []string, repository *Repository) (int, error) {
 	for attempt := 0; attempt < s.maxStatsRetries; attempt++ {
-		status, body, err := s.client.REST(ctx, "/repos/"+repository+"/stats/contributors", nil)
+		status, body, err := s.client.REST(ctx, "/repos/"+repository.Name+"/stats/contributors", nil)
 		if err != nil {
 			return 0, err
 		}
@@ -711,30 +713,30 @@ func (s *Service) fetchLinesChanged(ctx context.Context, login string, emails []
 		case 200:
 			total, err := decodeContributorStats(body, login)
 			if err != nil {
-				return 0, fmt.Errorf("decode contributor stats for %s: %w", repository, err)
+				return 0, fmt.Errorf("decode contributor stats for %s: %w", repository.SanitizedName, err)
 			}
-			log.Printf("Contributor stats API yielded %d changed line(s) for %s.", total, repository)
+			log.Printf("Contributor stats API yielded %d changed line(s) for %s.", total, repository.SanitizedName)
 			return total, nil
 		case 202:
-			log.Printf("Contributor stats for %s are still baking (attempt %d/%d). Waiting 2s.", repository, attempt+1, s.maxStatsRetries)
+			log.Printf("Contributor stats for %s are still baking (attempt %d/%d). Waiting 2s.", repository.SanitizedName, attempt+1, s.maxStatsRetries)
 			time.Sleep(2 * time.Second)
 			continue
 		case 403, 429:
-			log.Printf("Contributor stats for %s hit HTTP %d. Falling back to git archaeology.", repository, status)
+			log.Printf("Contributor stats for %s hit HTTP %d. Falling back to git archaeology.", repository.SanitizedName, status)
 			return s.gitLinesChanged(ctx, emails, repository)
 		default:
-			log.Printf("Contributor stats for %s returned HTTP %d. Falling back to git archaeology.", repository, status)
+			log.Printf("Contributor stats for %s returned HTTP %d. Falling back to git archaeology.", repository.SanitizedName, status)
 			return s.gitLinesChanged(ctx, emails, repository)
 		}
 	}
 
-	log.Printf("Contributor stats for %s stayed in the oven too long. Switching to git archaeology.", repository)
+	log.Printf("Contributor stats for %s stayed in the oven too long. Switching to git archaeology.", repository.SanitizedName)
 	return s.gitLinesChanged(ctx, emails, repository)
 }
 
-func (s *Service) gitLinesChanged(ctx context.Context, emails []string, repository string) (int, error) {
+func (s *Service) gitLinesChanged(ctx context.Context, emails []string, repository *Repository) (int, error) {
 	if _, err := exec.LookPath("git"); err != nil {
-		log.Printf("git is unavailable, so %s gets 0 fallback lines changed.", repository)
+		log.Printf("git is unavailable, so %s gets 0 fallback lines changed.", repository.SanitizedName)
 		return 0, nil
 	}
 
@@ -744,11 +746,11 @@ func (s *Service) gitLinesChanged(ctx context.Context, emails []string, reposito
 	}
 	defer os.RemoveAll(repoDir)
 
-	log.Printf("Cloning %s for fallback line counting.", repository)
-	cloneURL := fmt.Sprintf("https://x-access-token:%s@github.com/%s.git", s.client.Token(), repository)
+	log.Printf("Cloning %s for fallback line counting.", repository.SanitizedName)
+	cloneURL := fmt.Sprintf("https://x-access-token:%s@github.com/%s.git", s.client.Token(), repository.Name)
 	cloneCmd := exec.CommandContext(ctx, "git", "clone", "--bare", "--filter=blob:none", "--no-tags", "--single-branch", cloneURL, repoDir)
 	if output, err := cloneCmd.CombinedOutput(); err != nil {
-		return 0, fmt.Errorf("git clone failed for %s: %s", repository, strings.TrimSpace(string(output)))
+		return 0, fmt.Errorf("git clone failed for %s: %s", repository.SanitizedName, sanitizeGitCommandOutput(string(output), *repository, s.client.Token()))
 	}
 
 	args := []string{"-C", repoDir, "log", "--numstat", "--pretty=tformat:"}
@@ -759,7 +761,7 @@ func (s *Service) gitLinesChanged(ctx context.Context, emails []string, reposito
 	output, err := logCmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			return 0, fmt.Errorf("git log failed for %s: %s", repository, strings.TrimSpace(string(exitErr.Stderr)))
+			return 0, fmt.Errorf("git log failed for %s: %s", repository.SanitizedName, sanitizeGitCommandOutput(string(exitErr.Stderr), *repository, s.client.Token()))
 		}
 		return 0, err
 	}
@@ -774,7 +776,7 @@ func (s *Service) gitLinesChanged(ctx context.Context, emails []string, reposito
 		deletions := parseNumstatValue(fields[1])
 		total += additions + deletions
 	}
-	log.Printf("git fallback counted %d changed line(s) for %s.", total, repository)
+	log.Printf("git fallback counted %d changed line(s) for %s.", total, repository.SanitizedName)
 
 	return total, nil
 }
@@ -843,4 +845,26 @@ func parseNumstatValue(value string) int {
 		return 0
 	}
 	return parsed
+}
+
+func sanitizeRepositoryName(name string, private bool) string {
+	if private {
+		return "<private>"
+	}
+	return name
+}
+
+func sanitizeGitCommandOutput(output string, repository Repository, token string) string {
+	sanitized := strings.TrimSpace(output)
+	if sanitized == "" {
+		return "no additional git output"
+	}
+
+	if token != "" {
+		sanitized = strings.ReplaceAll(sanitized, token, "<redacted-token>")
+	}
+	if repository.Private {
+		sanitized = strings.ReplaceAll(sanitized, repository.Name, repository.SanitizedName)
+	}
+	return sanitized
 }
