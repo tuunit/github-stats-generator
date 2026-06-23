@@ -104,7 +104,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Generate SVG stats
-        uses: tuunit/github-stats-generator@vX.Y.Z
+        uses: tuunit/github-stats-generator@v0.2.1
         with:
           access_token: ${{ secrets.ACCESS_TOKEN }}
           output_dir: .
@@ -143,10 +143,8 @@ jobs:
 If the files live next to your profile README, you can reference them directly:
 
 ```markdown
-![](./overview.svg#gh-dark-mode-only)
-![](./overview.svg#gh-light-mode-only)
-![](./languages.svg#gh-dark-mode-only)
-![](./languages.svg#gh-light-mode-only)
+![](./overview.svg)
+![](./languages.svg)
 ```
 
 ## Aggregation rules
